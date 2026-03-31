@@ -7,9 +7,10 @@ export default zotero({
     {
       files: ["**/*.ts"],
       rules: {
-        // We disable this rule here because the template
-        // contains some unused examples and variables
         "@typescript-eslint/no-unused-vars": "off",
+        // Default initializers before try/catch are flagged as useless
+        // but are needed as fallbacks when the try block throws
+        "no-useless-assignment": "off",
       },
     },
   ],

@@ -96,7 +96,6 @@ export async function matchEntries(
     const item = Zotero.Items.get(id);
     if (!item || !item.isRegularItem()) continue;
 
-    // Extract fields once
     let title = "";
     let authors = "";
     let year: string | null = null;
