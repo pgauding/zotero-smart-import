@@ -64,28 +64,10 @@ export async function runSmartImport(): Promise<void> {
   const ambiguous = results.filter((r) => r.status === "ambiguous");
   const newEntries = results.filter((r) => r.status === "new");
 
-  // Show diagnostic alert so we can debug matching issues
+  // Log diagnostics (visible in Help > Debug Output Logging > View Output)
   const diag = (results as any)._diagnostics;
   if (diag) {
-    const topScores = results
-      .map(
-        (r) =>
-          `${r.entry.title?.substring(0, 35)}: ${r.confidence.toFixed(2)} (${r.status})`,
-      )
-      .slice(0, 5)
-      .join("\n");
-
-    Zotero.alert(
-      win as unknown as Window,
-      "Smart Import — Debug",
-      `Library: ${diag.indexStats}\n` +
-        `Raw getAll returned: ${diag.rawItemCount} rows\n` +
-        `Sample titles: ${diag.sampleTitles.join(" | ")}\n` +
-        `First .bib words: ${diag.firstEntryWords.join(", ")}\n` +
-        `First entry candidates: ${diag.firstEntryCandidates}\n\n` +
-        `Results: ${matched.length} matched, ${ambiguous.length} ambiguous, ${newEntries.length} new\n\n` +
-        `Top 5 scores:\n${topScores}`,
-    );
+    ztoolkit.log(`Index: ${diag.indexStats}`);
   }
 
   ztoolkit.log(
