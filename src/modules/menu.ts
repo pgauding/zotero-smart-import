@@ -1,11 +1,10 @@
-import { getString } from "../utils/locale";
 import { runSmartImport } from "./importer";
 
 export function registerMenus() {
   ztoolkit.Menu.register("menuFile", {
     tag: "menuitem",
     id: "smartimport-file-menu",
-    label: getString("menuitem-smart-import"),
+    label: "Smart .bib Import...",
     commandListener: () => {
       runSmartImport().catch((err) => {
         ztoolkit.log("Smart Import error:", err);
