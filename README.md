@@ -1,6 +1,6 @@
 # Smart Import for Zotero
 
-[![zotero target version](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![zotero target version](https://img.shields.io/badge/Zotero-8-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![license](https://img.shields.io/github/license/pgauding/zotero-smart-import?style=flat-square)](https://github.com/pgauding/zotero-smart-import/blob/main/LICENSE)
 
 Import `.bib` files into Zotero **without creating duplicates**. The plugin matches each BibTeX entry against your existing library using DOI (exact) and fuzzy title/author/year scoring, then organizes everything into a new collection so you can see at a glance which items you already have and which you still need to fetch.
@@ -99,7 +99,7 @@ The fuzzy matching algorithm is ported from [citation-detection](https://github.
 
 ## Requirements
 
-- Zotero 7 or later
+- Zotero 8 or later
 
 ## Development
 
