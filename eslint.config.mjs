@@ -2,7 +2,7 @@
 
 import zotero from "@zotero-plugin/eslint-config";
 
-export default zotero({
+const config = zotero({
   overrides: [
     {
       files: ["**/*.ts"],
@@ -15,3 +15,8 @@ export default zotero({
     },
   ],
 });
+
+// Exclude Node scripts from Zotero's eslint config
+config.push({ ignores: ["scripts/**"] });
+
+export default config;

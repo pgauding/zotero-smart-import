@@ -24,23 +24,29 @@ You generate a `.bib` file (from Claude, from a collaborator, from a LaTeX proje
 
 ## Installation
 
-### From Release (Recommended)
-
-1. Download the latest `.xpi` file from [Releases](https://github.com/pgauding/zotero-smart-import/releases)
-2. In Zotero: **Tools > Add-ons > gear icon > Install Add-on From File...**
-3. Select the downloaded `.xpi` file
-4. Restart Zotero
-
-### From Source
+### From Source (Recommended)
 
 ```bash
 git clone https://github.com/pgauding/zotero-smart-import.git
 cd zotero-smart-import
 npm install
 npm run build
+npm run install-plugin   # copies .xpi to Zotero's extensions directory
 ```
 
-The `.xpi` file will be at `.scaffold/build/smart-import-for-zotero.xpi`. Install it using the same steps as above.
+Then quit and reopen Zotero. The install script auto-detects your Zotero profile on macOS, Linux, and Windows.
+
+### From Release
+
+1. Download the latest `.xpi` file from [Releases](https://github.com/pgauding/zotero-smart-import/releases)
+2. Quit Zotero
+3. Copy the `.xpi` to your Zotero extensions directory, renaming it to `zotero-smart-import@patrickgauding.com.xpi`:
+   - **macOS**: `~/Library/Application Support/Zotero/Profiles/*.default/extensions/`
+   - **Linux**: `~/.zotero/zotero/*.default/extensions/`
+   - **Windows**: `%APPDATA%\Zotero\Zotero\Profiles\*.default\extensions\`
+4. Open Zotero
+
+> **Note**: Zotero's "Install Add-on From File" dialog may not persist the plugin across restarts. Copying the `.xpi` directly to the extensions directory is the reliable method.
 
 ## Usage
 
