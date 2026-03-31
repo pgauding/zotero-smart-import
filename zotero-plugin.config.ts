@@ -7,8 +7,6 @@ export default defineConfig({
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
-  updateURL: "",
-
   build: {
     assets: ["addon/**/*.*"],
     define: {
@@ -18,7 +16,6 @@ export default defineConfig({
       homepage: pkg.homepage,
       buildVersion: pkg.version,
       buildTime: "{{buildTime}}",
-      updateURL: "",
     },
     prefs: {
       prefix: pkg.config.prefsPrefix,
