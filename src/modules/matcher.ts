@@ -5,6 +5,11 @@
  *
  * Scoring weights ported from citation-detection scoring.py:
  *   0.50 * titleSimilarity + 0.30 * authorSimilarity + 0.20 * yearSimilarity
+ *
+ * Performance: builds a title-word inverted index so each .bib entry
+ * only scores items that share at least one significant title word,
+ * instead of scoring the entire library (~60 entries × ~5000 items
+ * would beachball Zotero on the main thread).
  */
 
 import { BibEntry } from "./bibParser";
@@ -15,6 +20,41 @@ const TITLE_WEIGHT = 0.5;
 const AUTHOR_WEIGHT = 0.3;
 const YEAR_WEIGHT = 0.2;
 
+/** Words too common to be useful for candidate filtering */
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "from",
+  "with",
+  "that",
+  "this",
+  "are",
+  "was",
+  "were",
+  "been",
+  "have",
+  "has",
+  "had",
+  "not",
+  "but",
+  "its",
+  "how",
+  "why",
+  "what",
+  "when",
+  "who",
+  "new",
+  "case",
+  "about",
+  "between",
+  "into",
+  "over",
+  "under",
+  "after",
+  "before",
+]);
+
 export type MatchStatus = "matched" | "ambiguous" | "new";
 
 export interface MatchResult {
@@ -24,9 +64,17 @@ export interface MatchResult {
   matchedItemId: number | null;
 }
 
+/** Pre-extracted item data to avoid repeated getField calls during scoring */
+interface ItemRecord {
+  id: number;
+  title: string;
+  authors: string;
+  year: string | null;
+}
+
 /**
  * Match an array of BibEntries against the user's Zotero library.
- * Loads all library items once upfront to avoid per-entry search API issues.
+ * Builds indexes upfront for DOI (exact) and title-word (candidate narrowing).
  */
 export async function matchEntries(
   entries: BibEntry[],
@@ -35,48 +83,94 @@ export async function matchEntries(
   const matchThreshold = (getPref("matchThreshold") as number) / 100;
   const ambiguousThreshold = (getPref("ambiguousThreshold") as number) / 100;
 
-  // Load all regular items once — avoids per-entry Zotero.Search calls
-  // which may not work reliably for all condition types
-  ztoolkit.log("Loading all library items for matching...");
+  ztoolkit.log("Loading library items for matching...");
   const allItemIds = await Zotero.Items.getAll(libraryID, true, false);
-  const allItems: any[] = [];
+
+  // Extract data from all items once
+  const doiIndex = new Map<string, number>();
+  const titleWordIndex = new Map<string, number[]>();
+  const itemRecords = new Map<number, ItemRecord>();
+
   for (const row of allItemIds) {
     const id = typeof row === "number" ? row : (row as any).id;
     const item = Zotero.Items.get(id);
-    if (item && item.isRegularItem()) {
-      allItems.push(item);
-    }
-  }
-  ztoolkit.log(`Loaded ${allItems.length} regular items from library`);
+    if (!item || !item.isRegularItem()) continue;
 
-  // Build a DOI index for fast exact matching
-  const doiIndex = new Map<string, number>();
-  for (const item of allItems) {
+    // Extract fields once
+    let title = "";
+    let authors = "";
+    let year: string | null = null;
+    try {
+      title = item.getField("title") || "";
+    } catch {
+      continue;
+    }
+    try {
+      const creators = item.getCreators() || [];
+      authors = creators
+        .filter(
+          (c: any) => c.creatorType === "author" || c.creatorType === "editor",
+        )
+        .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
+        .join("; ");
+    } catch {
+      /* ignore */
+    }
+    try {
+      year =
+        item.getField("year") || item.getField("date")?.substring(0, 4) || null;
+    } catch {
+      /* ignore */
+    }
+
+    // DOI index
     try {
       const doi = item.getField("DOI");
       if (doi) {
         doiIndex.set(
           doi.toLowerCase().replace(/^https?:\/\/doi\.org\//, ""),
-          item.id,
+          id,
         );
       }
     } catch {
-      // Some item types don't have DOI field
+      /* ignore */
     }
+
+    // Title-word inverted index
+    const words = significantWords(title);
+    for (const w of words) {
+      const existing = titleWordIndex.get(w);
+      if (existing) {
+        existing.push(id);
+      } else {
+        titleWordIndex.set(w, [id]);
+      }
+    }
+
+    itemRecords.set(id, { id, title, authors, year });
   }
-  ztoolkit.log(`Built DOI index with ${doiIndex.size} entries`);
 
+  ztoolkit.log(
+    `Indexed ${itemRecords.size} items, ${doiIndex.size} DOIs, ${titleWordIndex.size} title words`,
+  );
+
+  // Match each entry
   const results: MatchResult[] = [];
-
-  for (const entry of entries) {
+  for (let i = 0; i < entries.length; i++) {
     const result = matchSingleEntry(
-      entry,
-      allItems,
+      entries[i],
       doiIndex,
+      titleWordIndex,
+      itemRecords,
       matchThreshold,
       ambiguousThreshold,
     );
     results.push(result);
+
+    // Yield to event loop every 20 entries so Zotero UI doesn't freeze
+    if (i % 20 === 19) {
+      await Zotero.Promise.delay(0);
+    }
   }
 
   return results;
@@ -84,12 +178,13 @@ export async function matchEntries(
 
 function matchSingleEntry(
   entry: BibEntry,
-  allItems: any[],
   doiIndex: Map<string, number>,
+  titleWordIndex: Map<string, number[]>,
+  itemRecords: Map<number, ItemRecord>,
   matchThreshold: number,
   ambiguousThreshold: number,
 ): MatchResult {
-  // 1. Try DOI exact match
+  // 1. DOI exact match
   if (entry.doi) {
     const matchedId = doiIndex.get(entry.doi);
     if (matchedId !== undefined) {
@@ -105,33 +200,49 @@ function matchSingleEntry(
     }
   }
 
-  // 2. Fuzzy matching against all items
+  // 2. Find candidates via title-word index
   if (!entry.title) {
     return { entry, status: "new", confidence: 0.0, matchedItemId: null };
   }
 
+  const queryWords = significantWords(entry.title);
+  const candidateIds = new Set<number>();
+  for (const w of queryWords) {
+    const ids = titleWordIndex.get(w);
+    if (ids) {
+      for (const id of ids) candidateIds.add(id);
+    }
+  }
+
+  if (candidateIds.size === 0) {
+    ztoolkit.log(
+      `  No candidates: "${entry.title?.substring(0, 40)}" (${queryWords.length} query words)`,
+    );
+    return { entry, status: "new", confidence: 0.0, matchedItemId: null };
+  }
+
+  // 3. Score only candidates (not the entire library)
   let bestScore = 0;
   let bestItemId: number | null = null;
   let bestTitle = "";
 
-  for (const item of allItems) {
-    const score = scoreCandidate(entry, item);
+  for (const candidateId of candidateIds) {
+    const rec = itemRecords.get(candidateId);
+    if (!rec) continue;
+
+    const score = scoreRecord(entry, rec);
     if (score > bestScore) {
       bestScore = score;
-      bestItemId = item.id;
-      try {
-        bestTitle = item.getField("title") || "";
-      } catch {
-        bestTitle = "";
-      }
+      bestItemId = candidateId;
+      bestTitle = rec.title;
     }
   }
 
   ztoolkit.log(
-    `  Fuzzy: "${entry.title?.substring(0, 40)}" best=${bestScore.toFixed(2)} match="${bestTitle?.substring(0, 40)}"`,
+    `  Fuzzy: "${entry.title?.substring(0, 40)}" candidates=${candidateIds.size} best=${bestScore.toFixed(2)} match="${bestTitle?.substring(0, 40)}"`,
   );
 
-  // 3. Classify
+  // 4. Classify
   if (bestScore >= matchThreshold && bestItemId !== null) {
     return {
       entry,
@@ -152,50 +263,31 @@ function matchSingleEntry(
 }
 
 /**
- * Score a candidate Zotero item against a BibEntry.
- * Returns a composite score from 0.0 to 1.0.
+ * Score a candidate item record against a BibEntry.
+ * Uses pre-extracted data (no Zotero API calls during scoring).
  */
-function scoreCandidate(entry: BibEntry, item: any): number {
-  // Title similarity
-  let itemTitle = "";
-  try {
-    itemTitle = item.getField("title") || "";
-  } catch {
-    return 0;
-  }
+function scoreRecord(entry: BibEntry, rec: ItemRecord): number {
+  const titleScore = entry.title ? tokenSortRatio(entry.title, rec.title) : 0;
 
-  const titleScore = entry.title ? tokenSortRatio(entry.title, itemTitle) : 0;
-
-  // Author similarity
-  let itemAuthors = "";
-  try {
-    const creators = item.getCreators() || [];
-    itemAuthors = creators
-      .filter(
-        (c: any) => c.creatorType === "author" || c.creatorType === "editor",
-      )
-      .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
-      .join("; ");
-  } catch {
-    // ignore
-  }
   const entryAuthors = entry.authors.join("; ");
   const authorScore =
-    entryAuthors && itemAuthors ? tokenSetRatio(entryAuthors, itemAuthors) : 0;
+    entryAuthors && rec.authors ? tokenSetRatio(entryAuthors, rec.authors) : 0;
 
-  // Year similarity
-  let itemYear: string | null = null;
-  try {
-    itemYear =
-      item.getField("year") || item.getField("date")?.substring(0, 4) || null;
-  } catch {
-    // ignore
-  }
-  const yearScore = yearSimilarity(entry.year, itemYear);
+  const yearScore = yearSimilarity(entry.year, rec.year);
 
   return (
     TITLE_WEIGHT * titleScore +
     AUTHOR_WEIGHT * authorScore +
     YEAR_WEIGHT * yearScore
   );
+}
+
+/**
+ * Extract significant lowercase words from a title (>3 chars, not stop words).
+ */
+function significantWords(title: string): string[] {
+  return title
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
 }
