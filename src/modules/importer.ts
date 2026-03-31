@@ -7,6 +7,7 @@ import { parseBibFile } from "./bibParser";
 import { matchEntries, MatchResult } from "./matcher";
 import { getString } from "../utils/locale";
 import { getPref } from "../utils/prefs";
+import { FilePickerHelper } from "zotero-plugin-toolkit";
 
 // BibTeX translator ID (stable across Zotero versions)
 const BIBTEX_TRANSLATOR_ID = "9cb70025-a888-4a29-a210-93ec52da40d4";
@@ -184,28 +185,20 @@ async function tagNewItemsInCollection(
  * Returns the selected file path, or null if cancelled.
  */
 async function pickBibFile(): Promise<string | null> {
-  const fp = (Components.classes as any)[
-    "@mozilla.org/filepicker;1"
-  ].createInstance(Components.interfaces.nsIFilePicker);
-  const win = Zotero.getMainWindow();
-  // Zotero 7 (Firefox 115): init() expects a BrowsingContext, not a Window
-  fp.init(
-    (win as any).browsingContext,
-    "Select .bib File",
-    Components.interfaces.nsIFilePicker.modeOpen,
-  );
-  fp.appendFilter("BibTeX Files", "*.bib");
-  fp.appendFilters(Components.interfaces.nsIFilePicker.filterAll);
-
-  return new Promise((resolve) => {
-    fp.open((result: number) => {
-      if (result === Components.interfaces.nsIFilePicker.returnOK && fp.file) {
-        resolve(fp.file.path);
-      } else {
-        resolve(null);
-      }
-    });
-  });
+  try {
+    const fp = new FilePickerHelper(
+      "Select .bib File",
+      "open",
+      [["BibTeX Files", "*.bib"]],
+      undefined,
+      Zotero.getMainWindow() as Window,
+    );
+    const result = await fp.open();
+    return result || null;
+  } catch (err) {
+    Zotero.debug(`[Smart Import] pickBibFile error: ${err}`, 1);
+    throw err;
+  }
 }
 
 /**

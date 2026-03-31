@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/patrickgauding/zotero-smart-import.git"
+    "url": "git+https://github.com/pgauding/zotero-smart-import.git"
   },
   "author": "Patrick Gauding",
   "bugs": {
-    "url": "https://github.com/patrickgauding/zotero-smart-import/issues"
+    "url": "https://github.com/pgauding/zotero-smart-import/issues"
   },
-  "homepage": "https://github.com/patrickgauding/zotero-smart-import#readme",
+  "homepage": "https://github.com/pgauding/zotero-smart-import#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",

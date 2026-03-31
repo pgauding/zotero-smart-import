@@ -82,16 +82,13 @@ function findDefaultProfile(profilesDir) {
   return null;
 }
 
-// Check if Zotero is running
+// Check if Zotero is running (exact process name match to avoid self-matching)
 function isZoteroRunning() {
   try {
-    const result = execSync(
-      "pgrep -x zotero 2>/dev/null || pgrep -f Zotero.app 2>/dev/null",
-      {
-        encoding: "utf-8",
-      },
-    );
-    return result.trim().length > 0;
+    execSync("pgrep -x zotero-bin 2>/dev/null || pgrep -x zotero 2>/dev/null", {
+      encoding: "utf-8",
+    });
+    return true;
   } catch {
     return false;
   }
