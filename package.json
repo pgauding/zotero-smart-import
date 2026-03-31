@@ -1,7 +1,7 @@
 {
   "name": "zotero-smart-import",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Smart BibTeX import with deduplication for Zotero",
   "config": {
     "addonName": "Smart Import for Zotero",
