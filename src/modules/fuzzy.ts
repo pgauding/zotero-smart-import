@@ -82,12 +82,8 @@ export function tokenSetRatio(a: string, b: string): number {
   }
 
   const sorted_intersection = intersection.sort().join(" ");
-  const combined_a = [sorted_intersection, ...diffA.sort()]
-    .join(" ")
-    .trim();
-  const combined_b = [sorted_intersection, ...diffB.sort()]
-    .join(" ")
-    .trim();
+  const combined_a = [sorted_intersection, ...diffA.sort()].join(" ").trim();
+  const combined_b = [sorted_intersection, ...diffB.sort()].join(" ").trim();
 
   // Return max of: intersection vs combined_a, intersection vs combined_b,
   // and combined_a vs combined_b
@@ -102,10 +98,7 @@ export function tokenSetRatio(a: string, b: string): number {
  * Year similarity: exact=1.0, off-by-one=0.5, else=0.0.
  * Ported from scoring.py lines 51-64.
  */
-export function yearSimilarity(
-  a: string | null,
-  b: string | null,
-): number {
+export function yearSimilarity(a: string | null, b: string | null): number {
   if (!a || !b) return 0.0;
   const ya = parseInt(a, 10);
   const yb = parseInt(b, 10);

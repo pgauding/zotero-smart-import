@@ -55,7 +55,10 @@ export async function matchEntries(
     try {
       const doi = item.getField("DOI");
       if (doi) {
-        doiIndex.set(doi.toLowerCase().replace(/^https?:\/\/doi\.org\//, ""), item.id);
+        doiIndex.set(
+          doi.toLowerCase().replace(/^https?:\/\/doi\.org\//, ""),
+          item.id,
+        );
       }
     } catch {
       // Some item types don't have DOI field
@@ -161,9 +164,7 @@ function scoreCandidate(entry: BibEntry, item: any): number {
     return 0;
   }
 
-  const titleScore = entry.title
-    ? tokenSortRatio(entry.title, itemTitle)
-    : 0;
+  const titleScore = entry.title ? tokenSortRatio(entry.title, itemTitle) : 0;
 
   // Author similarity
   let itemAuthors = "";
@@ -171,8 +172,7 @@ function scoreCandidate(entry: BibEntry, item: any): number {
     const creators = item.getCreators() || [];
     itemAuthors = creators
       .filter(
-        (c: any) =>
-          c.creatorType === "author" || c.creatorType === "editor",
+        (c: any) => c.creatorType === "author" || c.creatorType === "editor",
       )
       .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
       .join("; ");
@@ -181,17 +181,13 @@ function scoreCandidate(entry: BibEntry, item: any): number {
   }
   const entryAuthors = entry.authors.join("; ");
   const authorScore =
-    entryAuthors && itemAuthors
-      ? tokenSetRatio(entryAuthors, itemAuthors)
-      : 0;
+    entryAuthors && itemAuthors ? tokenSetRatio(entryAuthors, itemAuthors) : 0;
 
   // Year similarity
   let itemYear: string | null = null;
   try {
     itemYear =
-      item.getField("year") ||
-      item.getField("date")?.substring(0, 4) ||
-      null;
+      item.getField("year") || item.getField("date")?.substring(0, 4) || null;
   } catch {
     // ignore
   }

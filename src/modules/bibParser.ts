@@ -28,7 +28,11 @@ export function parseBibFile(content: string): BibEntry[] {
     const entryType = match[1].toLowerCase();
 
     // Skip @comment, @preamble, @string
-    if (entryType === "comment" || entryType === "preamble" || entryType === "string") {
+    if (
+      entryType === "comment" ||
+      entryType === "preamble" ||
+      entryType === "string"
+    ) {
       continue;
     }
 
@@ -72,7 +76,10 @@ export function parseBibFile(content: string): BibEntry[] {
  * Extract a brace-delimited block from content starting just after the
  * opening brace. Returns the content between braces, or null if unbalanced.
  */
-function extractBracedBlock(content: string, startAfterBrace: number): string | null {
+function extractBracedBlock(
+  content: string,
+  startAfterBrace: number,
+): string | null {
   let depth = 1;
   let i = startAfterBrace;
 
@@ -101,7 +108,8 @@ function parseFields(fieldsStr: string): Record<string, string> {
 
     // Read field name
     const nameStart = pos;
-    while (pos < fieldsStr.length && /[a-zA-Z0-9_-]/.test(fieldsStr[pos])) pos++;
+    while (pos < fieldsStr.length && /[a-zA-Z0-9_-]/.test(fieldsStr[pos]))
+      pos++;
     const fieldName = fieldsStr.substring(nameStart, pos).toLowerCase();
     if (!fieldName) break;
 
@@ -129,7 +137,11 @@ function parseFields(fieldsStr: string): Record<string, string> {
     } else {
       // Bare value (number or string concatenation)
       const valueStart = pos;
-      while (pos < fieldsStr.length && fieldsStr[pos] !== "," && fieldsStr[pos] !== "}") {
+      while (
+        pos < fieldsStr.length &&
+        fieldsStr[pos] !== "," &&
+        fieldsStr[pos] !== "}"
+      ) {
         pos++;
       }
       value = fieldsStr.substring(valueStart, pos).trim();
@@ -190,7 +202,7 @@ function parseAuthors(authorStr: string): string[] {
  */
 function extractYear(value: string | null): string | null {
   if (!value) return null;
-  const match = value.match(/\b(1[5-9]\d{2}|20[0-2]\d)\b/);
+  const match = value.match(/\b(1[5-9]\d{2}|20\d{2})\b/);
   return match ? match[1] : null;
 }
 

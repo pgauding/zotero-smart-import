@@ -1,26 +1,29 @@
 import { assert } from "chai";
 import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { parseBibFile } from "../../src/modules/bibParser";
 
-// Load the real .bib file used for testing
+// Load the test fixture .bib file (bundled in the repo)
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUNS_BIB = readFileSync(
-  "/Users/patrickgauding/Documents/research/guns-state-viol-2025/bib/guns-state-viol.bib",
+  join(__dirname, "../fixtures/guns-state-viol.bib"),
   "utf-8",
 );
 
-describe("bibParser", () => {
+describe("bibParser", function () {
   let entries: ReturnType<typeof parseBibFile>;
 
-  before(() => {
+  before(function () {
     entries = parseBibFile(GUNS_BIB);
   });
 
-  it("should parse all entries from the .bib file", () => {
+  it("should parse all entries from the .bib file", function () {
     // File has entries from @article and @book types, no @comment/@preamble
     assert.isAbove(entries.length, 50, "should find at least 50 entries");
   });
 
-  it("should skip %% comment lines without creating entries", () => {
+  it("should skip %% comment lines without creating entries", function () {
     const citekeys = entries.map((e) => e.citekey);
     assert.notInclude(citekeys, "");
     for (const key of citekeys) {
@@ -28,7 +31,7 @@ describe("bibParser", () => {
     }
   });
 
-  it("should correctly parse almond1950 (single author, book)", () => {
+  it("should correctly parse almond1950 (single author, book)", function () {
     const e = entries.find((e) => e.citekey === "almond1950");
     assert.isDefined(e, "almond1950 should exist");
     assert.equal(e!.entryType, "book");
@@ -38,7 +41,7 @@ describe("bibParser", () => {
     assert.isNull(e!.doi);
   });
 
-  it("should correctly parse converse1964 (single author, article)", () => {
+  it("should correctly parse converse1964 (single author, article)", function () {
     const e = entries.find((e) => e.citekey === "converse1964");
     assert.isDefined(e);
     assert.equal(e!.entryType, "article");
@@ -49,20 +52,17 @@ describe("bibParser", () => {
     assert.equal(e!.fields["pages"], "1--74");
   });
 
-  it("should correctly parse pageShapiro1992 (two authors with and)", () => {
+  it("should correctly parse pageShapiro1992 (two authors with and)", function () {
     const e = entries.find((e) => e.citekey === "pageShapiro1992");
     assert.isDefined(e);
-    assert.deepEqual(e!.authors, [
-      "Page, Benjamin I.",
-      "Shapiro, Robert Y.",
-    ]);
+    assert.deepEqual(e!.authors, ["Page, Benjamin I.", "Shapiro, Robert Y."]);
     assert.equal(
       e!.title,
       "The Rational Public: Fifty Years of Trends in Americans' Policy Preferences",
     );
   });
 
-  it("should correctly parse campbellConverseMiller1960 (four authors)", () => {
+  it("should correctly parse campbellConverseMiller1960 (four authors)", function () {
     const e = entries.find((e) => e.citekey === "campbellConverseMiller1960");
     assert.isDefined(e);
     assert.lengthOf(e!.authors, 4);
@@ -72,7 +72,7 @@ describe("bibParser", () => {
     assert.equal(e!.authors[3], "Stokes, Donald E.");
   });
 
-  it("should correctly parse gelpiFeaverReifler2006 (three authors)", () => {
+  it("should correctly parse gelpiFeaverReifler2006 (three authors)", function () {
     const e = entries.find((e) => e.citekey === "gelpiFeaverReifler2006");
     assert.isDefined(e);
     assert.lengthOf(e!.authors, 3);
@@ -82,7 +82,7 @@ describe("bibParser", () => {
     assert.equal(e!.year, "2006");
   });
 
-  it("should strip LaTeX braces from berinsky2007 title", () => {
+  it("should strip LaTeX braces from berinsky2007 title", function () {
     const e = entries.find((e) => e.citekey === "berinsky2007");
     assert.isDefined(e);
     assert.equal(
@@ -91,7 +91,7 @@ describe("bibParser", () => {
     );
   });
 
-  it("should strip LaTeX braces from berinsky2009 title (multiple brace groups)", () => {
+  it("should strip LaTeX braces from berinsky2009 title (multiple brace groups)", function () {
     const e = entries.find((e) => e.citekey === "berinsky2009");
     assert.isDefined(e);
     assert.equal(
@@ -100,20 +100,20 @@ describe("bibParser", () => {
     );
   });
 
-  it("should handle possessive inside braces (melzer2009)", () => {
+  it("should handle possessive inside braces (melzer2009)", function () {
     const e = entries.find((e) => e.citekey === "melzer2009");
     assert.isDefined(e);
     assert.equal(e!.title, "Gun Crusaders: The NRA's Culture War");
   });
 
-  it("should handle halbrook2013 (year field says 2008)", () => {
+  it("should handle halbrook2013 (year field says 2008)", function () {
     const e = entries.find((e) => e.citekey === "halbrook2013");
     assert.isDefined(e);
     // The citekey says 2013 but the year field says 2008 — parser should use the field
     assert.equal(e!.year, "2008");
   });
 
-  it("should handle parkerfixed2017 (five authors, month field)", () => {
+  it("should handle parkerfixed2017 (five authors, month field)", function () {
     const e = entries.find((e) => e.citekey === "parkerfixed2017");
     assert.isDefined(e);
     assert.lengthOf(e!.authors, 5);
@@ -122,7 +122,7 @@ describe("bibParser", () => {
     assert.equal(e!.fields["month"], "June");
   });
 
-  it("should handle smeltzDaadler2023 (five authors)", () => {
+  it("should handle smeltzDaadler2023 (five authors)", function () {
     const e = entries.find((e) => e.citekey === "smeltzDaadler2023");
     assert.isDefined(e);
     assert.lengthOf(e!.authors, 5);
@@ -130,7 +130,7 @@ describe("bibParser", () => {
     assert.equal(e!.authors[4], "Sullivan, Emily");
   });
 
-  it("should handle LaTeX escapes in gelmanStern2006 title", () => {
+  it("should handle LaTeX escapes in gelmanStern2006 title", function () {
     const e = entries.find((e) => e.citekey === "gelmanStern2006");
     assert.isDefined(e);
     // Title has ``Significant'' and ``Not Significant'' with LaTeX double quotes
@@ -138,7 +138,7 @@ describe("bibParser", () => {
     assert.include(e!.title!, "Not Significant");
   });
 
-  it("should handle hurwitzPeffley1987 title with {A}", () => {
+  it("should handle hurwitzPeffley1987 title with {A}", function () {
     const e = entries.find((e) => e.citekey === "hurwitzPeffley1987");
     assert.isDefined(e);
     assert.equal(
@@ -147,7 +147,7 @@ describe("bibParser", () => {
     );
   });
 
-  it("should preserve rawBibtex for every entry", () => {
+  it("should preserve rawBibtex for every entry", function () {
     for (const e of entries) {
       assert.isString(e.rawBibtex);
       assert.include(e.rawBibtex, `@${e.entryType}`);
@@ -155,20 +155,20 @@ describe("bibParser", () => {
     }
   });
 
-  it("should have no entries with empty citekeys", () => {
+  it("should have no entries with empty citekeys", function () {
     for (const e of entries) {
       assert.isNotEmpty(e.citekey, "citekey should not be empty");
     }
   });
 
-  it("should have a title for every entry", () => {
+  it("should have a title for every entry", function () {
     for (const e of entries) {
       assert.isNotNull(e.title, `${e.citekey} should have a title`);
       assert.isNotEmpty(e.title!, `${e.citekey} title should not be empty`);
     }
   });
 
-  it("should have at least one author for every entry", () => {
+  it("should have at least one author for every entry", function () {
     for (const e of entries) {
       assert.isAbove(
         e.authors.length,
@@ -178,7 +178,7 @@ describe("bibParser", () => {
     }
   });
 
-  it("should have a year for every entry", () => {
+  it("should have a year for every entry", function () {
     for (const e of entries) {
       assert.isNotNull(e.year, `${e.citekey} should have a year`);
       assert.match(e.year!, /^\d{4}$/, `${e.citekey} year should be 4 digits`);

@@ -116,7 +116,7 @@ export async function runSmartImport(): Promise<void> {
   // 10. Show summary
   popupWin.changeLine({
     progress: 100,
-    text: buildSummary(matched.length, newEntries.length, ambiguous.length),
+    text: buildSummary(matched.length, createdCount, ambiguous.length),
   });
   popupWin.startCloseTimer(8000);
 
@@ -164,11 +164,9 @@ async function tagNewItemsInCollection(
  * Returns the selected file path, or null if cancelled.
  */
 async function pickBibFile(): Promise<string | null> {
-  const fp = (
-    Components.classes as any
-  )["@mozilla.org/filepicker;1"].createInstance(
-    Components.interfaces.nsIFilePicker,
-  );
+  const fp = (Components.classes as any)[
+    "@mozilla.org/filepicker;1"
+  ].createInstance(Components.interfaces.nsIFilePicker);
   const win = Zotero.getMainWindow();
   // Zotero 7 (Firefox 115): init() expects a BrowsingContext, not a Window
   fp.init(
@@ -181,10 +179,7 @@ async function pickBibFile(): Promise<string | null> {
 
   return new Promise((resolve) => {
     fp.open((result: number) => {
-      if (
-        result === Components.interfaces.nsIFilePicker.returnOK &&
-        fp.file
-      ) {
+      if (result === Components.interfaces.nsIFilePicker.returnOK && fp.file) {
         resolve(fp.file.path);
       } else {
         resolve(null);
@@ -222,9 +217,7 @@ async function importNewEntries(
   // Reconstruct a .bib string from the raw BibTeX of unmatched entries
   const bibString = results.map((r) => r.entry.rawBibtex).join("\n\n");
 
-  ztoolkit.log(
-    `Importing ${results.length} entries via BibTeX translator...`,
-  );
+  ztoolkit.log(`Importing ${results.length} entries via BibTeX translator...`);
 
   try {
     const translation = new Zotero.Translate.Import();

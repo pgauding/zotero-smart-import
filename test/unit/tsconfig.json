@@ -8,5 +8,9 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": [".", "../../src/modules/bibParser.ts", "../../src/modules/fuzzy.ts"]
+  "include": [
+    ".",
+    "../../src/modules/bibParser.ts",
+    "../../src/modules/fuzzy.ts"
+  ]
 }
