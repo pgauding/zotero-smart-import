@@ -1,2 +1,4 @@
-pref("enable", true);
-pref("input", "This is input");
+pref("matchThreshold", 75);
+pref("ambiguousThreshold", 40);
+pref("tagNewItems", true);
+pref("newItemTag", "smart-import:new");

@@ -7,8 +7,10 @@
 declare namespace _ZoteroTypes {
   interface Prefs {
     PluginPrefsMap: {
-      "enable": boolean;
-      "input": string;
+      "matchThreshold": number;
+      "ambiguousThreshold": number;
+      "tagNewItems": boolean;
+      "newItemTag": string;
     };
   }
 }
