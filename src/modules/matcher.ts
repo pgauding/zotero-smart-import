@@ -26,6 +26,7 @@ export interface MatchResult {
 
 /**
  * Match an array of BibEntries against the user's Zotero library.
+ * Loads all library items once upfront to avoid per-entry search API issues.
  */
 export async function matchEntries(
   entries: BibEntry[],
@@ -34,12 +35,41 @@ export async function matchEntries(
   const matchThreshold = (getPref("matchThreshold") as number) / 100;
   const ambiguousThreshold = (getPref("ambiguousThreshold") as number) / 100;
 
+  // Load all regular items once — avoids per-entry Zotero.Search calls
+  // which may not work reliably for all condition types
+  ztoolkit.log("Loading all library items for matching...");
+  const allItemIds = await Zotero.Items.getAll(libraryID, true, false);
+  const allItems: any[] = [];
+  for (const row of allItemIds) {
+    const id = typeof row === "number" ? row : (row as any).id;
+    const item = Zotero.Items.get(id);
+    if (item && item.isRegularItem()) {
+      allItems.push(item);
+    }
+  }
+  ztoolkit.log(`Loaded ${allItems.length} regular items from library`);
+
+  // Build a DOI index for fast exact matching
+  const doiIndex = new Map<string, number>();
+  for (const item of allItems) {
+    try {
+      const doi = item.getField("DOI");
+      if (doi) {
+        doiIndex.set(doi.toLowerCase().replace(/^https?:\/\/doi\.org\//, ""), item.id);
+      }
+    } catch {
+      // Some item types don't have DOI field
+    }
+  }
+  ztoolkit.log(`Built DOI index with ${doiIndex.size} entries`);
+
   const results: MatchResult[] = [];
 
   for (const entry of entries) {
-    const result = await matchSingleEntry(
+    const result = matchSingleEntry(
       entry,
-      libraryID,
+      allItems,
+      doiIndex,
       matchThreshold,
       ambiguousThreshold,
     );
@@ -49,52 +79,56 @@ export async function matchEntries(
   return results;
 }
 
-async function matchSingleEntry(
+function matchSingleEntry(
   entry: BibEntry,
-  libraryID: number,
+  allItems: any[],
+  doiIndex: Map<string, number>,
   matchThreshold: number,
   ambiguousThreshold: number,
-): Promise<MatchResult> {
-  ztoolkit.log(
-    `Matching: "${entry.title?.substring(0, 50)}" doi=${entry.doi || "none"} year=${entry.year || "none"}`,
-  );
-
+): MatchResult {
   // 1. Try DOI exact match
   if (entry.doi) {
-    const doiMatch = await findByDoi(entry.doi, libraryID);
-    ztoolkit.log(`  DOI search for "${entry.doi}": ${doiMatch !== null ? `found ID ${doiMatch}` : "not found"}`);
-    if (doiMatch !== null) {
+    const matchedId = doiIndex.get(entry.doi);
+    if (matchedId !== undefined) {
+      ztoolkit.log(
+        `  DOI match: "${entry.title?.substring(0, 40)}" -> item ${matchedId}`,
+      );
       return {
         entry,
         status: "matched",
         confidence: 1.0,
-        matchedItemId: doiMatch,
+        matchedItemId: matchedId,
       };
     }
   }
 
-  // 2. Fuzzy matching: search for candidates by title keywords
-  const candidates = await findCandidates(entry, libraryID);
-  if (candidates.length === 0) {
+  // 2. Fuzzy matching against all items
+  if (!entry.title) {
     return { entry, status: "new", confidence: 0.0, matchedItemId: null };
   }
 
-  // 3. Score each candidate
   let bestScore = 0;
   let bestItemId: number | null = null;
+  let bestTitle = "";
 
-  for (const candidateId of candidates) {
-    const item = Zotero.Items.get(candidateId);
-    if (!item || !item.isRegularItem()) continue;
-
+  for (const item of allItems) {
     const score = scoreCandidate(entry, item);
     if (score > bestScore) {
       bestScore = score;
-      bestItemId = candidateId;
+      bestItemId = item.id;
+      try {
+        bestTitle = item.getField("title") || "";
+      } catch {
+        bestTitle = "";
+      }
     }
   }
 
-  // 4. Classify
+  ztoolkit.log(
+    `  Fuzzy: "${entry.title?.substring(0, 40)}" best=${bestScore.toFixed(2)} match="${bestTitle?.substring(0, 40)}"`,
+  );
+
+  // 3. Classify
   if (bestScore >= matchThreshold && bestItemId !== null) {
     return {
       entry,
@@ -115,104 +149,36 @@ async function matchSingleEntry(
 }
 
 /**
- * Search for a Zotero item by DOI.
- * Returns the item ID if found, null otherwise.
- */
-async function findByDoi(
-  doi: string,
-  libraryID: number,
-): Promise<number | null> {
-  // Try Zotero.Search with DOI condition
-  try {
-    const s = new Zotero.Search();
-    (s as any).libraryID = libraryID;
-    s.addCondition("DOI", "is", doi);
-    const ids = await s.search();
-    if (ids.length > 0) return ids[0];
-  } catch {
-    // DOI search condition may not be supported; fall back to SQL
-  }
-
-  // Fallback: direct DB query
-  try {
-    const fieldID = Zotero.ItemFields.getID("DOI");
-    if (fieldID) {
-      const sql = `
-        SELECT items.itemID
-        FROM items
-        JOIN itemData USING (itemID)
-        JOIN itemDataValues USING (valueID)
-        WHERE items.libraryID = ?
-          AND itemData.fieldID = ?
-          AND LOWER(itemDataValues.value) = LOWER(?)
-        LIMIT 1
-      `;
-      const id = await Zotero.DB.valueQueryAsync(sql, [
-        libraryID,
-        fieldID,
-        doi,
-      ]);
-      if (id) return id as unknown as number;
-    }
-  } catch (err) {
-    ztoolkit.log("DOI SQL fallback failed:", err);
-  }
-
-  return null;
-}
-
-/**
- * Find candidate items for fuzzy matching using quicksearch.
- * Returns an array of item IDs.
- */
-async function findCandidates(
-  entry: BibEntry,
-  libraryID: number,
-): Promise<number[]> {
-  if (!entry.title) return [];
-
-  // Use first few significant words of the title for quick search
-  const keywords = entry.title
-    .split(/\s+/)
-    .filter((w) => w.length > 3)
-    .slice(0, 4)
-    .join(" ");
-
-  if (!keywords) return [];
-
-  try {
-    const s = new Zotero.Search();
-    (s as any).libraryID = libraryID;
-    s.addCondition("quicksearch-titleCreatorYear", "contains", keywords);
-    const ids = await s.search();
-    // Limit candidates to prevent slow scoring on huge libraries
-    return ids.slice(0, 50);
-  } catch (err) {
-    ztoolkit.log("Candidate search failed:", err);
-    return [];
-  }
-}
-
-/**
  * Score a candidate Zotero item against a BibEntry.
  * Returns a composite score from 0.0 to 1.0.
  */
 function scoreCandidate(entry: BibEntry, item: any): number {
   // Title similarity
-  const itemTitle = item.getField("title") || "";
+  let itemTitle = "";
+  try {
+    itemTitle = item.getField("title") || "";
+  } catch {
+    return 0;
+  }
+
   const titleScore = entry.title
     ? tokenSortRatio(entry.title, itemTitle)
     : 0;
 
   // Author similarity
-  const creators = item.getCreators() || [];
-  const itemAuthors = creators
-    .filter(
-      (c: any) =>
-        c.creatorType === "author" || c.creatorType === "editor",
-    )
-    .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
-    .join("; ");
+  let itemAuthors = "";
+  try {
+    const creators = item.getCreators() || [];
+    itemAuthors = creators
+      .filter(
+        (c: any) =>
+          c.creatorType === "author" || c.creatorType === "editor",
+      )
+      .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
+      .join("; ");
+  } catch {
+    // ignore
+  }
   const entryAuthors = entry.authors.join("; ");
   const authorScore =
     entryAuthors && itemAuthors
@@ -220,10 +186,15 @@ function scoreCandidate(entry: BibEntry, item: any): number {
       : 0;
 
   // Year similarity
-  const itemYear =
-    item.getField("year") ||
-    item.getField("date")?.substring(0, 4) ||
-    null;
+  let itemYear: string | null = null;
+  try {
+    itemYear =
+      item.getField("year") ||
+      item.getField("date")?.substring(0, 4) ||
+      null;
+  } catch {
+    // ignore
+  }
   const yearScore = yearSimilarity(entry.year, itemYear);
 
   return (

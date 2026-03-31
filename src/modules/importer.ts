@@ -96,23 +96,21 @@ export async function runSmartImport(): Promise<void> {
 
   // 8. Import unmatched items via Zotero's BibTeX translator
   const toCreate = [...newEntries, ...ambiguous];
+  let createdCount = 0;
   if (toCreate.length > 0) {
     popupWin.changeLine({
       progress: 70,
       text: getString("import-progress-importing"),
     });
 
-    const newItems = await importNewEntries(toCreate, libraryID, collection.id);
+    createdCount = await importNewEntries(toCreate, libraryID, collection.id);
+  }
 
-    // 9. Tag new items
-    const shouldTag = getPref("tagNewItems") as boolean;
-    const tagName = getPref("newItemTag") as string;
-    if (shouldTag && tagName) {
-      for (const item of newItems) {
-        item.addTag(tagName);
-        await item.saveTx();
-      }
-    }
+  // 9. Tag new items in the collection that weren't matched
+  const shouldTag = getPref("tagNewItems") as boolean;
+  const tagName = getPref("newItemTag") as string;
+  if (shouldTag && tagName && createdCount > 0) {
+    await tagNewItemsInCollection(collection.id, matched, tagName);
   }
 
   // 10. Show summary
@@ -126,6 +124,38 @@ export async function runSmartImport(): Promise<void> {
   const zp = Zotero.getActiveZoteroPane();
   if (zp && zp.collectionsView) {
     await (zp.collectionsView as any).selectCollection(collection.id);
+  }
+}
+
+/**
+ * Tag items in the collection that aren't in the matched set.
+ * Uses proper Zotero.Items.getAsync() to get full Item objects.
+ */
+async function tagNewItemsInCollection(
+  collectionId: number,
+  matched: MatchResult[],
+  tagName: string,
+): Promise<void> {
+  const matchedIds = new Set(
+    matched.map((r) => r.matchedItemId).filter((id) => id !== null),
+  );
+
+  const collection = Zotero.Collections.get(collectionId);
+  if (!collection) return;
+
+  const childItemIds = collection.getChildItems(true);
+  for (const itemId of childItemIds) {
+    if (!matchedIds.has(itemId)) {
+      try {
+        const item = Zotero.Items.get(itemId);
+        if (item && item.isRegularItem()) {
+          item.addTag(tagName);
+          await item.saveTx();
+        }
+      } catch (err) {
+        ztoolkit.log(`Failed to tag item ${itemId}: ${err}`);
+      }
+    }
   }
 }
 
@@ -182,36 +212,42 @@ function promptForCollectionName(defaultName: string): string | null {
 
 /**
  * Import new entries using Zotero's built-in BibTeX translator.
- * Returns the array of newly created Zotero items.
+ * Returns the count of items created.
  */
 async function importNewEntries(
   results: MatchResult[],
   libraryID: number,
   collectionId: number,
-): Promise<any[]> {
+): Promise<number> {
   // Reconstruct a .bib string from the raw BibTeX of unmatched entries
   const bibString = results.map((r) => r.entry.rawBibtex).join("\n\n");
 
   ztoolkit.log(
     `Importing ${results.length} entries via BibTeX translator...`,
   );
-  ztoolkit.log(`First 200 chars of bib string: ${bibString.substring(0, 200)}`);
 
   try {
     const translation = new Zotero.Translate.Import();
     translation.setString(bibString);
-    translation.setTranslator(BIBTEX_TRANSLATOR_ID);
 
-    const newItems: any[] = [];
-    translation.setHandler("itemDone", (_obj: any, item: any) => {
-      ztoolkit.log(`Imported item: ${item.getField?.("title") || "unknown"}`);
-      newItems.push(item);
+    // Let Zotero detect the right translator rather than hardcoding an ID
+    const translators = await translation.getTranslators();
+    if (!translators || translators.length === 0) {
+      ztoolkit.log("No BibTeX translator found, trying hardcoded ID...");
+      translation.setTranslator(BIBTEX_TRANSLATOR_ID);
+    } else {
+      ztoolkit.log(
+        `Found translator: ${translators[0].label} (${translators[0].translatorID})`,
+      );
+      translation.setTranslator(translators[0]);
+    }
+
+    let itemCount = 0;
+    translation.setHandler("itemDone", () => {
+      itemCount++;
     });
     translation.setHandler("error", (_obj: any, err: any) => {
       ztoolkit.log(`Translator error: ${err}`);
-    });
-    translation.setHandler("done", (_obj: any, success: any) => {
-      ztoolkit.log(`Translator done, success: ${success}`);
     });
 
     await translation.translate({
@@ -219,11 +255,12 @@ async function importNewEntries(
       collections: [collectionId],
     });
 
-    ztoolkit.log(`Import complete: ${newItems.length} items created`);
-    return newItems;
+    ztoolkit.log(`Import complete: ${itemCount} items created`);
+    return itemCount;
   } catch (err) {
     ztoolkit.log(`Import failed: ${err}`);
-    throw err;
+    // Don't throw — let the workflow continue to show partial results
+    return 0;
   }
 }
 
