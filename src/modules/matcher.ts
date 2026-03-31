@@ -107,10 +107,10 @@ export async function matchEntries(
     }
     try {
       const creators = item.getCreators() || [];
+      // Don't filter by creatorType — Zotero may use creatorTypeID (number)
+      // instead of creatorType (string). Including all creators (authors,
+      // editors, translators) is fine for fuzzy matching.
       authors = creators
-        .filter(
-          (c: any) => c.creatorType === "author" || c.creatorType === "editor",
-        )
         .map((c: any) => `${c.lastName || ""}, ${c.firstName || ""}`)
         .join("; ");
     } catch {
@@ -150,9 +150,16 @@ export async function matchEntries(
     itemRecords.set(id, { id, title, authors, year });
   }
 
-  ztoolkit.log(
-    `Indexed ${itemRecords.size} items, ${doiIndex.size} DOIs, ${titleWordIndex.size} title words`,
-  );
+  const indexStats = `${itemRecords.size} items, ${doiIndex.size} DOIs, ${titleWordIndex.size} title words`;
+  ztoolkit.log(`Indexed ${indexStats}`);
+
+  // Diagnostic: sample a few titles from the index to verify extraction works
+  const sampleTitles: string[] = [];
+  for (const rec of itemRecords.values()) {
+    if (sampleTitles.length < 3) sampleTitles.push(rec.title.substring(0, 60));
+    else break;
+  }
+  ztoolkit.log(`Sample library titles: ${JSON.stringify(sampleTitles)}`);
 
   // Match each entry
   const results: MatchResult[] = [];
@@ -171,6 +178,27 @@ export async function matchEntries(
     if (i % 20 === 19) {
       await Zotero.Promise.delay(0);
     }
+  }
+
+  // Attach diagnostics for the importer to display
+  (results as any)._diagnostics = {
+    indexStats,
+    sampleTitles,
+    rawItemCount: allItemIds.length,
+    firstEntryWords:
+      entries.length > 0 ? significantWords(entries[0].title || "") : [],
+    firstEntryCandidates: 0,
+  };
+
+  // Compute first entry's candidate count for diagnostic
+  if (entries.length > 0 && entries[0].title) {
+    const qwords = significantWords(entries[0].title);
+    const cands = new Set<number>();
+    for (const w of qwords) {
+      const ids = titleWordIndex.get(w);
+      if (ids) for (const id of ids) cands.add(id);
+    }
+    (results as any)._diagnostics.firstEntryCandidates = cands.size;
   }
 
   return results;

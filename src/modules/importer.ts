@@ -64,6 +64,30 @@ export async function runSmartImport(): Promise<void> {
   const ambiguous = results.filter((r) => r.status === "ambiguous");
   const newEntries = results.filter((r) => r.status === "new");
 
+  // Show diagnostic alert so we can debug matching issues
+  const diag = (results as any)._diagnostics;
+  if (diag) {
+    const topScores = results
+      .map(
+        (r) =>
+          `${r.entry.title?.substring(0, 35)}: ${r.confidence.toFixed(2)} (${r.status})`,
+      )
+      .slice(0, 5)
+      .join("\n");
+
+    Zotero.alert(
+      win as unknown as Window,
+      "Smart Import — Debug",
+      `Library: ${diag.indexStats}\n` +
+        `Raw getAll returned: ${diag.rawItemCount} rows\n` +
+        `Sample titles: ${diag.sampleTitles.join(" | ")}\n` +
+        `First .bib words: ${diag.firstEntryWords.join(", ")}\n` +
+        `First entry candidates: ${diag.firstEntryCandidates}\n\n` +
+        `Results: ${matched.length} matched, ${ambiguous.length} ambiguous, ${newEntries.length} new\n\n` +
+        `Top 5 scores:\n${topScores}`,
+    );
+  }
+
   ztoolkit.log(
     `Match results: ${matched.length} matched, ${ambiguous.length} ambiguous, ${newEntries.length} new`,
   );
@@ -81,18 +105,28 @@ export async function runSmartImport(): Promise<void> {
     return; // user cancelled
   }
 
-  // 6. Create collection
-  const collection = new Zotero.Collection();
-  (collection as any).libraryID = libraryID;
-  collection.name = collectionName;
-  await collection.saveTx();
+  // 6. Create collection and add matched items in one transaction
+  const matchedIds = matched
+    .map((r) => r.matchedItemId)
+    .filter((id): id is number => id !== null);
 
-  // 7. Add matched items to collection
-  for (const result of matched) {
-    if (result.matchedItemId !== null) {
-      await collection.addItem(result.matchedItemId);
+  let collectionId: number;
+  await Zotero.DB.executeTransaction(async () => {
+    const collection = new Zotero.Collection();
+    (collection as any).libraryID = libraryID;
+    collection.name = collectionName;
+    await collection.save();
+    collectionId = collection.id;
+
+    // Add matched items to collection
+    for (const itemId of matchedIds) {
+      const item = Zotero.Items.get(itemId);
+      if (item) {
+        item.addToCollection(collectionId);
+        await item.save();
+      }
     }
-  }
+  });
 
   // 8. Import unmatched items via Zotero's BibTeX translator
   const toCreate = [...newEntries, ...ambiguous];
@@ -103,14 +137,14 @@ export async function runSmartImport(): Promise<void> {
       text: getString("import-progress-importing"),
     });
 
-    createdCount = await importNewEntries(toCreate, libraryID, collection.id);
+    createdCount = await importNewEntries(toCreate, libraryID, collectionId!);
   }
 
   // 9. Tag new items in the collection that weren't matched
   const shouldTag = getPref("tagNewItems") as boolean;
   const tagName = getPref("newItemTag") as string;
   if (shouldTag && tagName && createdCount > 0) {
-    await tagNewItemsInCollection(collection.id, matched, tagName);
+    await tagNewItemsInCollection(collectionId!, matched, tagName);
   }
 
   // 10. Show summary
@@ -123,7 +157,7 @@ export async function runSmartImport(): Promise<void> {
   // 11. Navigate to the new collection
   const zp = Zotero.getActiveZoteroPane();
   if (zp && zp.collectionsView) {
-    await (zp.collectionsView as any).selectCollection(collection.id);
+    await (zp.collectionsView as any).selectCollection(collectionId!);
   }
 }
 
@@ -144,19 +178,23 @@ async function tagNewItemsInCollection(
   if (!collection) return;
 
   const childItemIds = collection.getChildItems(true);
-  for (const itemId of childItemIds) {
-    if (!matchedIds.has(itemId)) {
+  const toTag = childItemIds.filter((id: number) => !matchedIds.has(id));
+
+  if (toTag.length === 0) return;
+
+  await Zotero.DB.executeTransaction(async () => {
+    for (const itemId of toTag) {
       try {
         const item = Zotero.Items.get(itemId);
         if (item && item.isRegularItem()) {
           item.addTag(tagName);
-          await item.saveTx();
+          await item.save();
         }
       } catch (err) {
         ztoolkit.log(`Failed to tag item ${itemId}: ${err}`);
       }
     }
-  }
+  });
 }
 
 /**
